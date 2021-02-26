@@ -36,7 +36,7 @@ pub fn create_circle(options: DrawCircleOptions) -> DrawBuffers {
     let mut ibuf: Vec<u16> = vec![0, 360, 1];
 
     vbuf.push(Vertex {
-        position: [center.x, center.y, 0.0],
+        position: [center.x, center.y],
         color,
     });
     for i in 0..(num_vertices - 1) {
@@ -45,7 +45,7 @@ pub fn create_circle(options: DrawCircleOptions) -> DrawBuffers {
         let y_comp = radius * cgmath::Angle::sin(rad);
         let pos = cgmath::Vector2::new(x_comp, y_comp * aspect_ratio) + center;
         vbuf.push(Vertex {
-            position: [pos.x, pos.y, 0.0],
+            position: [pos.x, pos.y],
             color,
         });
     }

@@ -123,11 +123,11 @@ impl State {
                         wgpu::VertexAttribute {
                             shader_location: 0,
                             offset: 0,
-                            format: wgpu::VertexFormat::Float3,
+                            format: wgpu::VertexFormat::Float2,
                         },
                         wgpu::VertexAttribute {
                             shader_location: 1,
-                            offset: std::mem::size_of::<[f32; 3]>() as u64,
+                            offset: std::mem::size_of::<[f32; 2]>() as u64,
                             format: wgpu::VertexFormat::Float3,
                         },
                     ],
