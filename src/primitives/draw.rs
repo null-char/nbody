@@ -8,22 +8,12 @@ pub struct DrawBuffers {
     pub indices: Option<Vec<u16>>,
 }
 
-pub struct DrawCircleOptions {
-    pub radius: f32,
-    pub center: cgmath::Vector2<f32>,
-    pub color: cgmath::Vector3<f32>,
-    pub window_size: PhysicalSize<u32>,
-}
-
-/// Creates vertices and indices describing the configured circle. The first value of the tuple
+/// Creates vertices and indices describing a unit circle. The first value of the tuple
 /// are the vertices and the second value are the indices
-pub fn create_circle(options: DrawCircleOptions) -> DrawBuffers {
-    let DrawCircleOptions {
-        radius,
-        center,
-        color,
-        window_size,
-    } = options;
+pub fn create_unit_circle(
+    color: cgmath::Vector3<f32>,
+    window_size: PhysicalSize<u32>,
+) -> DrawBuffers {
     let color: [f32; 3] = [color.x, color.y, color.z];
     let wx = window_size.width as f32;
     let wy = window_size.height as f32;
@@ -35,15 +25,17 @@ pub fn create_circle(options: DrawCircleOptions) -> DrawBuffers {
     let mut vbuf = Vec::with_capacity(num_vertices);
     let mut ibuf: Vec<u16> = vec![0, 360, 1];
 
+    // Center vertex
     vbuf.push(Vertex {
-        position: [center.x, center.y],
+        position: [0.0, 0.0],
         color,
     });
+
     for i in 0..(num_vertices - 1) {
         let rad = cgmath::Rad((i as f32) * (PI / 180.0));
-        let x_comp = radius * cgmath::Angle::cos(rad);
-        let y_comp = radius * cgmath::Angle::sin(rad);
-        let pos = cgmath::Vector2::new(x_comp, y_comp * aspect_ratio) + center;
+        let x_comp = cgmath::Angle::cos(rad);
+        let y_comp = cgmath::Angle::sin(rad);
+        let pos = cgmath::Vector2::new(x_comp, y_comp * aspect_ratio);
         vbuf.push(Vertex {
             position: [pos.x, pos.y],
             color,
