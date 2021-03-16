@@ -9,6 +9,7 @@ use winit::{
 mod constants;
 mod primitives;
 mod state;
+mod utils;
 use state::State;
 
 fn main() {
