@@ -1,15 +1,18 @@
+use super::utils;
 use crate::primitives::{
-    draw,
-    draw::{DrawBuffers, DrawCircleOptions},
-    vertex::Vertex,
+    draw, draw::DrawBuffers, instance::Instance, particle::Particle, vertex::Vertex,
 };
 use std::{borrow::Cow, fs};
 use wgpu::{
-    util::DeviceExt, CommandEncoderDescriptor, DeviceDescriptor, Instance,
-    PipelineLayoutDescriptor, RenderPassColorAttachmentDescriptor, RenderPassDescriptor,
-    RenderPipelineDescriptor, RequestAdapterOptions, ShaderModuleDescriptor, SwapChainDescriptor,
+    util::DeviceExt, CommandEncoderDescriptor, DeviceDescriptor, PipelineLayoutDescriptor,
+    RenderPassColorAttachmentDescriptor, RenderPassDescriptor, RenderPipelineDescriptor,
+    RequestAdapterOptions, ShaderModuleDescriptor, SwapChainDescriptor,
 };
-use winit::{dpi::PhysicalSize, event::WindowEvent, window::Window};
+use winit::{
+    dpi::{PhysicalPosition, PhysicalSize},
+    event::WindowEvent,
+    window::Window,
+};
 
 pub struct State {
     surface: wgpu::Surface,
@@ -21,15 +24,19 @@ pub struct State {
     clear_color: wgpu::Color,
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
-    num_vertices: u32,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
+    instance_buffer: wgpu::Buffer,
+    instances: Vec<Instance>,
+    num_instances: u32,
+    particles: Vec<Particle>,
+    cursor_pos: PhysicalPosition<f64>,
 }
 
 impl State {
     pub async fn new(window: &Window) -> Self {
         let window_size = window.inner_size();
-        let instance = Instance::new(wgpu::BackendBit::PRIMARY);
+        let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
         let surface = unsafe { instance.create_surface(window) };
         let adapter = instance
             .request_adapter({
@@ -116,35 +123,13 @@ impl State {
             vertex: wgpu::VertexState {
                 entry_point: "main",
                 module: &vx_module,
-                buffers: &[wgpu::VertexBufferLayout {
-                    step_mode: wgpu::InputStepMode::Vertex,
-                    array_stride: std::mem::size_of::<Vertex>() as u64,
-                    attributes: &[
-                        wgpu::VertexAttribute {
-                            shader_location: 0,
-                            offset: 0,
-                            format: wgpu::VertexFormat::Float2,
-                        },
-                        wgpu::VertexAttribute {
-                            shader_location: 1,
-                            offset: std::mem::size_of::<[f32; 2]>() as u64,
-                            format: wgpu::VertexFormat::Float3,
-                        },
-                    ],
-                }],
+                buffers: &[Vertex::desc(), Instance::desc()],
             },
         });
 
-        // Creation of the vertex buffer
-        let center = cgmath::Vector2::new(0.0, 0.0);
-        let radius: f32 = 0.3;
-        // Construction of the circle via a triangle fan
-        let DrawBuffers { vertices, indices } = draw::create_circle(DrawCircleOptions {
-            center,
-            color: cgmath::Vector3::new(1.0, 1.0, 1.0),
-            radius,
-            window_size,
-        });
+        // Construction of a unit circle via a triangle fan
+        let DrawBuffers { vertices, indices } =
+            draw::create_unit_circle(cgmath::Vector3::new(1.0, 1.0, 1.0), window_size);
         let indices = indices.unwrap();
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -157,6 +142,13 @@ impl State {
             label: Some("Index Buffer"),
             contents: bytemuck::cast_slice(indices.as_slice()),
             usage: wgpu::BufferUsage::INDEX,
+        });
+
+        let instances: Vec<Instance> = Vec::new();
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance Buffer"),
+            contents: bytemuck::cast_slice(instances.as_slice()),
+            usage: wgpu::BufferUsage::VERTEX,
         });
 
         let sc_desc = SwapChainDescriptor {
@@ -184,24 +176,24 @@ impl State {
             },
             render_pipeline,
             vertex_buffer,
-            num_vertices: vertices.len() as u32,
             index_buffer,
             num_indices: indices.len() as u32,
+            instance_buffer,
+            num_instances: instances.len() as u32,
+            instances,
+            particles: Vec::new(),
+            // Keep track of cursor position so that we can later add new
+            // particles whenever there's a mouse left click event
+            cursor_pos: PhysicalPosition::new(0.0, 0.0),
         }
     }
 
     pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
-        // Recreate vertex buffer
-        let center = cgmath::Vector2::new(0.0, 0.0);
-        let radius: f32 = 0.3;
-        // Construction of the circle via a triangle fan
-        let DrawBuffers { vertices, .. } = draw::create_circle(DrawCircleOptions {
-            center,
-            color: cgmath::Vector3::new(1.0, 1.0, 1.0),
-            radius,
-            window_size: new_size,
-        });
+        // Reconstruct the unit circle with the new size and recreate the vertex buffer
+        let DrawBuffers { vertices, .. } =
+            draw::create_unit_circle(cgmath::Vector3::new(1.0, 1.0, 1.0), new_size);
 
+        self.vertex_buffer.destroy();
         self.vertex_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -226,10 +218,82 @@ impl State {
 
     /// Returns true if an event was captured otherwise this will return false
     pub fn input(&mut self, window_event: &WindowEvent) -> bool {
-        false
+        match window_event {
+            // Keep track of cursor position on cursor movement in state
+            WindowEvent::CursorMoved { position, .. } => {
+                self.cursor_pos = *position;
+            }
+            WindowEvent::MouseInput { button, state, .. } => {
+                if let winit::event::MouseButton::Left = button {
+                    if let winit::event::ElementState::Released = state {
+                        let cx = self.cursor_pos.x;
+                        let cy = self.cursor_pos.y;
+                        let ndc =
+                            utils::normalize_window_coordinates(&utils::ViewportTransformOptions {
+                                window_pos: cgmath::Vector2::new(cx, cy),
+                                xw: utils::MinMax::<f64> {
+                                    min: 0.0,
+                                    max: self.size.width as f64,
+                                },
+                                // Min and max needs to be swapped here as the axes in window space begins at
+                                // the top left corner and not the bottom left corner.
+                                // Since the direction of the y axis is reversed as opposed to the convention, min
+                                // and max needs to be swapped
+                                yw: utils::MinMax::<f64> {
+                                    min: self.size.height as f64,
+                                    max: 0.0,
+                                },
+                            });
+                        let radius = 0.05;
+
+                        self.particles.push(Particle {
+                            position: cgmath::Vector2::new(ndc.x, ndc.y),
+                            radius,
+                            mass: 1.0,
+                            velocity: cgmath::Vector2::new(0.0, 0.0),
+                        });
+                        self.instances.push(Instance {
+                            position: [ndc.x, ndc.y],
+                            radius,
+                        });
+                        self.num_instances = self.instances.len() as u32;
+
+                        // Destroy and recreate instance buffer with the new instances
+                        self.instance_buffer.destroy();
+                        self.instance_buffer =
+                            self.device
+                                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                    label: Some("Instance Buffer"),
+                                    contents: bytemuck::cast_slice(self.instances.as_slice()),
+                                    usage: wgpu::BufferUsage::VERTEX,
+                                });
+                    }
+                }
+            }
+            _ => return false,
+        }
+        true
     }
 
-    pub fn update(&mut self) {}
+    pub fn update(&mut self) {
+        if !self.particles.is_empty() {
+            let mut i: usize = 0;
+            while i < (self.particles.len() - 1) {
+                let p1 = self.particles.get(i).unwrap();
+                let mut j = i + 1;
+                while j < self.particles.len() {
+                    let p2 = self.particles.get(j).unwrap();
+                    let does_collide = p1.check_collision(p2);
+                    if does_collide {
+                        println!("{} collides with {}!", i, j);
+                    }
+                    j += 1;
+                }
+
+                i += 1;
+            }
+        }
+    }
 
     pub fn render(&mut self) -> Result<(), wgpu::SwapChainError> {
         let frame;
@@ -262,8 +326,9 @@ impl State {
 
             rpass.set_pipeline(&self.render_pipeline);
             rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            rpass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            rpass.draw_indexed(0..self.num_indices, 0, 0..1);
+            rpass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
         }
 
         let cb = encoder.finish();
