@@ -8,6 +8,7 @@ use winit::{
 
 mod constants;
 mod primitives;
+mod quadtree;
 mod state;
 mod utils;
 use state::State;
