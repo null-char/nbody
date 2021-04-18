@@ -1,7 +1,7 @@
-use super::utils;
 use crate::primitives::{
     draw, draw::DrawBuffers, instance::Instance, particle::Particle, vertex::Vertex,
 };
+use crate::utils;
 use std::{borrow::Cow, fs};
 use wgpu::{
     util::DeviceExt, CommandEncoderDescriptor, DeviceDescriptor, PipelineLayoutDescriptor,
