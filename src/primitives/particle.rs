@@ -15,17 +15,10 @@ impl Particle {
         let y1 = self.position.y;
         let y2 = p2.position.y;
 
-        let dist = f32::sqrt(f32::pow(x2 - x1, 2) + f32::pow(y2 - y1, 2));
-        let does_intersect = {
-            let gap = dist - (self.radius + p2.radius);
-
-            if gap <= 0.0 {
-                true
-            } else {
-                false
-            }
-        };
-
-        return does_intersect;
+        // Applying a square root and then comparing with radii_sum is
+        // slightly more expensive
+        let dist = f32::pow(x2 - x1, 2) + f32::pow(y2 - y1, 2);
+        let radii_sum = f32::pow(self.radius + p2.radius, 2);
+        return dist <= radii_sum;
     }
 }
