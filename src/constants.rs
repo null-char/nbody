@@ -9,6 +9,3 @@ pub static MIN_X: Scalar = 0.0;
 pub static MAX_X: Scalar = 1000.0;
 pub static MIN_Y: Scalar = 0.0;
 pub static MAX_Y: Scalar = 1000.0;
-
-// quadtree
-pub static QUADTREE_CAPACITY: usize = 2;
