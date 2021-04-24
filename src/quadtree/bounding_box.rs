@@ -22,14 +22,15 @@ impl QuadBoundingBox {
         (self.min_y + self.max_y) / 2.0
     }
 
-    /// Gets the height of the bounding box
-    pub fn height(&self) -> Scalar {
-        self.max_y - self.min_y
+    /// Gets the length of the bounding box
+    pub fn length(&self) -> Scalar {
+        self.max_x - self.min_x
     }
 
-    /// Gets the width of the bounding box
-    pub fn width(&self) -> Scalar {
-        self.max_x - self.min_x
+    /// If the point does not lie in this bounding box, `contains` will return false
+    pub fn contains(&self, p: cgmath::Vector2<Scalar>) -> bool {
+        let (px, py) = (p.x, p.y);
+        return (px <= self.max_x && py <= self.max_y) && (px >= self.min_x && py >= self.min_y);
     }
 
     /// Given a point, determine which quadrant it lies in
@@ -114,7 +115,7 @@ mod tests {
     }
 
     #[test]
-    fn it_computes_width_and_height() {
+    fn it_computes_length() {
         let bb2 = QuadBoundingBox {
             min_x: 400.0,
             max_x: 700.0,
@@ -122,8 +123,7 @@ mod tests {
             max_y: 500.0,
         };
 
-        assert_eq!(bb2.width(), 300.0);
-        assert_eq!(bb2.height(), 300.0);
+        assert_eq!(bb2.length(), 300.0);
     }
 
     #[test]
@@ -149,5 +149,13 @@ mod tests {
                 max_y: 1000.0
             }
         );
+    }
+
+    #[test]
+    fn it_checks_if_bb_contains_point() {
+        assert_eq!(BB.contains(cgmath::vec2(1200.0, 600.0)), false);
+        assert_eq!(BB.contains(cgmath::vec2(0.0, 600.0)), true);
+        assert_eq!(BB.contains(cgmath::vec2(600.0, 1200.0)), false);
+        assert_eq!(BB.contains(cgmath::vec2(1200.0, 1200.0)), false);
     }
 }
