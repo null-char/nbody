@@ -1,7 +1,10 @@
-use crate::primitives::{
-    draw, draw::DrawBuffers, instance::Instance, particle::Particle, vertex::Vertex,
+use crate::{
+    constants,
+    primitives::{draw, draw::DrawBuffers, instance::Instance, particle::Particle, vertex::Vertex},
+    simulation::Simulation,
 };
-use crate::utils;
+use crate::{primitives::particle::ParticleProperties, utils};
+use rand::Rng;
 use std::{borrow::Cow, fs};
 use wgpu::{
     util::DeviceExt, CommandEncoderDescriptor, DeviceDescriptor, PipelineLayoutDescriptor,
@@ -27,10 +30,11 @@ pub struct State {
     index_buffer: wgpu::Buffer,
     num_indices: u32,
     instance_buffer: wgpu::Buffer,
-    instances: Vec<Instance>,
     num_instances: u32,
-    particles: Vec<Particle>,
     cursor_pos: PhysicalPosition<f64>,
+    sim: Simulation,
+    /// Whether or not the simulation is paused
+    paused: bool,
 }
 
 impl State {
@@ -180,11 +184,11 @@ impl State {
             num_indices: indices.len() as u32,
             instance_buffer,
             num_instances: instances.len() as u32,
-            instances,
-            particles: Vec::new(),
             // Keep track of cursor position so that we can later add new
             // particles whenever there's a mouse left click event
             cursor_pos: PhysicalPosition::new(0.0, 0.0),
+            sim: Simulation::new(0.05, 1.0),
+            paused: true,
         }
     }
 
@@ -223,6 +227,34 @@ impl State {
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor_pos = *position;
             }
+            WindowEvent::KeyboardInput {
+                device_id: _,
+                input,
+                ..
+            } => {
+                let keycode = input.virtual_keycode;
+                if input.state == winit::event::ElementState::Pressed && keycode.is_some() {
+                    let kc = keycode.unwrap();
+                    let step_offset = 0.05;
+
+                    match kc {
+                        winit::event::VirtualKeyCode::Space => {
+                            self.paused = !self.paused;
+                        }
+                        winit::event::VirtualKeyCode::Up => {
+                            self.sim.change_time_step(step_offset);
+                        }
+                        winit::event::VirtualKeyCode::Down => {
+                            self.sim.change_time_step(-step_offset);
+                        }
+                        winit::event::VirtualKeyCode::R => {
+                            self.sim.reset();
+                            self.recreate_instance_buffer();
+                        }
+                        _ => (),
+                    }
+                }
+            }
             WindowEvent::MouseInput { button, state, .. } => {
                 if let winit::event::MouseButton::Left = button {
                     if let winit::event::ElementState::Released = state {
@@ -243,30 +275,27 @@ impl State {
                                     min: self.size.height as f64,
                                     max: 0.0,
                                 },
+                                xv: utils::MinMax::<f64> {
+                                    min: constants::MIN_X as f64,
+                                    max: constants::MAX_X as f64,
+                                },
+                                yv: utils::MinMax::<f64> {
+                                    min: constants::MIN_Y as f64,
+                                    max: constants::MAX_Y as f64,
+                                },
                             });
-                        let radius = 0.05;
 
-                        self.particles.push(Particle {
-                            position: cgmath::Vector2::new(ndc.x, ndc.y),
+                        let mut rng = rand::thread_rng();
+                        let radius = rng.gen_range(1..4) as f32;
+                        self.sim.add_particle(Particle::new(ParticleProperties {
+                            position: cgmath::vec2(ndc.x, ndc.y),
                             radius,
-                            mass: 1.0,
-                            velocity: cgmath::Vector2::new(0.0, 0.0),
-                        });
-                        self.instances.push(Instance {
-                            position: [ndc.x, ndc.y],
-                            radius,
-                        });
-                        self.num_instances = self.instances.len() as u32;
+                            mass: 50.0 * radius,
+                            velocity: cgmath::vec2(0.0, 0.0),
+                            acceleration: cgmath::vec2(0.0, 0.0),
+                        }));
 
-                        // Destroy and recreate instance buffer with the new instances
-                        self.instance_buffer.destroy();
-                        self.instance_buffer =
-                            self.device
-                                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                    label: Some("Instance Buffer"),
-                                    contents: bytemuck::cast_slice(self.instances.as_slice()),
-                                    usage: wgpu::BufferUsage::VERTEX,
-                                });
+                        self.recreate_instance_buffer();
                     }
                 }
             }
@@ -276,23 +305,31 @@ impl State {
     }
 
     pub fn update(&mut self) {
-        if !self.particles.is_empty() {
-            let mut i: usize = 0;
-            while i < (self.particles.len() - 1) {
-                let p1 = self.particles.get(i).unwrap();
-                let mut j = i + 1;
-                while j < self.particles.len() {
-                    let p2 = self.particles.get(j).unwrap();
-                    let does_collide = p1.check_collision(p2);
-                    if does_collide {
-                        println!("{} collides with {}!", i, j);
-                    }
-                    j += 1;
-                }
-
-                i += 1;
-            }
+        if !self.paused && !self.sim.get_particles().is_empty() {
+            // As long as the simulation isn't paused and we have particles in
+            // the system, check for collision, step the simulation, integrate the forces
+            // for each body and finally recreate the instance buffer.
+            self.sim.resolve_collisions();
+            self.sim.step();
+            self.sim.integrate();
+            self.recreate_instance_buffer();
         }
+    }
+
+    /// Destroys the existing instance buffer and recreates it with
+    /// current instances. This function must be called each time the
+    /// data within instances change.
+    fn recreate_instance_buffer(&mut self) {
+        let instances = self.sim.get_instances();
+        self.instance_buffer.destroy();
+        self.instance_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Instance Buffer"),
+                contents: bytemuck::cast_slice(instances.as_slice()),
+                usage: wgpu::BufferUsage::VERTEX,
+            });
+        self.num_instances = instances.len() as u32;
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SwapChainError> {
