@@ -4,13 +4,16 @@ use crate::{
     simulation::Simulation,
 };
 use crate::{primitives::particle::ParticleProperties, utils};
+use futures::executor::{LocalPool, LocalSpawner};
+use futures::task::SpawnExt;
 use rand::Rng;
-use std::{borrow::Cow, fs};
+use std::borrow::Cow;
 use wgpu::{
     util::DeviceExt, CommandEncoderDescriptor, DeviceDescriptor, PipelineLayoutDescriptor,
     RenderPassColorAttachmentDescriptor, RenderPassDescriptor, RenderPipelineDescriptor,
     RequestAdapterOptions, ShaderModuleDescriptor, SwapChainDescriptor,
 };
+use wgpu_glyph::{ab_glyph, GlyphBrush, GlyphBrushBuilder, Section, Text};
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     event::WindowEvent,
@@ -33,6 +36,10 @@ pub struct State {
     num_instances: u32,
     cursor_pos: PhysicalPosition<f64>,
     sim: Simulation,
+    glyph_brush: GlyphBrush<()>,
+    staging_belt: wgpu::util::StagingBelt,
+    local_pool: LocalPool,
+    local_spawner: LocalSpawner,
     /// Whether or not the simulation is paused
     paused: bool,
 }
@@ -62,6 +69,9 @@ impl State {
             )
             .await
             .unwrap();
+        let staging_belt = wgpu::util::StagingBelt::new(1024);
+        let local_pool = LocalPool::new();
+        let local_spawner = local_pool.spawner();
 
         let options = shaderc::CompileOptions::new().unwrap();
         let mut compiler = shaderc::Compiler::new().unwrap();
@@ -73,7 +83,7 @@ impl State {
             source: wgpu::ShaderSource::SpirV(Cow::Borrowed(
                 compiler
                     .compile_into_spirv(
-                        fs::read_to_string("shader.vert").unwrap().as_str(),
+                        include_str!("shaders/shader.vert"),
                         shaderc::ShaderKind::Vertex,
                         "shader.vert",
                         "main",
@@ -90,7 +100,7 @@ impl State {
             source: wgpu::ShaderSource::SpirV(Cow::Borrowed(
                 compiler
                     .compile_into_spirv(
-                        fs::read_to_string("shader.frag").unwrap().as_str(),
+                        include_str!("shaders/shader.frag"),
                         shaderc::ShaderKind::Fragment,
                         "shader.frag",
                         "main",
@@ -130,6 +140,9 @@ impl State {
                 buffers: &[Vertex::desc(), Instance::desc()],
             },
         });
+        let font =
+            ab_glyph::FontArc::try_from_slice(include_bytes!("font/Hack-Regular.ttf")).unwrap();
+        let glyph_brush = GlyphBrushBuilder::using_font(font).build(&device, format);
 
         // Construction of a unit circle via a triangle fan
         let DrawBuffers { vertices, indices } =
@@ -188,6 +201,10 @@ impl State {
             // particles whenever there's a mouse left click event
             cursor_pos: PhysicalPosition::new(0.0, 0.0),
             sim: Simulation::new(0.05, 1.0),
+            glyph_brush,
+            staging_belt,
+            local_pool,
+            local_spawner,
             paused: true,
         }
     }
@@ -368,9 +385,37 @@ impl State {
             rpass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
         }
 
+        let dt = self.sim.get_time_step();
+        self.glyph_brush.queue(Section {
+            screen_position: (30.0, 30.0),
+            bounds: (self.size.width as f32, self.size.height as f32),
+            text: vec![Text::new(format!("time_step: {:.2}", dt).as_str())
+                .with_color([1.0, 1.0, 1.0, 1.0])
+                .with_scale(25.0)],
+            ..Section::default()
+        });
+        self.glyph_brush
+            .draw_queued(
+                &self.device,
+                &mut self.staging_belt,
+                &mut encoder,
+                &frame.view,
+                self.size.width,
+                self.size.height,
+            )
+            .expect("queue draw");
+
+        self.staging_belt.finish();
         let cb = encoder.finish();
         // An iterator that'll just yield once
         self.queue.submit(std::iter::once(cb));
+        // Recall unused buffers after finishing
+        self.local_spawner
+            .spawn(self.staging_belt.recall())
+            .expect("Recall staging belt buffers");
+        // Run tasks until we encounter a future on which no more progress can be made
+        self.local_pool.run_until_stalled();
+
         Ok(())
     }
 }

@@ -3,7 +3,7 @@ use wgpu::{self, SwapChainError};
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
-    window::{Window, WindowBuilder},
+    window::WindowBuilder,
 };
 
 mod constants;
