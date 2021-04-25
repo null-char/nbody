@@ -11,6 +11,7 @@ use crate::{
 pub struct Simulation {
     particles: Vec<Particle>,
     time_step: Scalar,
+    base_step: Scalar,
     theta: Scalar,
 }
 
@@ -19,6 +20,7 @@ impl Simulation {
         Self {
             particles: Vec::new(),
             time_step,
+            base_step: time_step,
             theta,
         }
     }
@@ -133,14 +135,9 @@ impl Simulation {
             // Position vector of the vertex closest to the boundary
             let pv = pt.position + pt.velocity.normalize_to(pt.radius);
             if pv.x > 1000.0 || pv.y > 1000.0 || pv.x < 0.0 || pv.y < 0.0 {
-                pt.velocity /= 2.0;
-                if pt.velocity.magnitude2() < 300.0 {
-                    pt.velocity *= 2.0;
-                }
-                let theta = 3.14 + 0.7;
-                let (x, y) = (pt.velocity.x, pt.velocity.y);
-                pt.velocity.x = x * f32::cos(theta) - y * f32::sin(theta);
-                pt.velocity.y = x * f32::sin(theta) + y * f32::cos(theta);
+                let m1 = pt.mass;
+                let m2 = pt.mass * 100.0;
+                pt.velocity = ((m1 - m2) / (m1 + m2)) * pt.velocity;
             }
         }
     }
@@ -150,10 +147,15 @@ impl Simulation {
     }
 
     pub fn change_time_step(&mut self, step_offset: Scalar) {
-        let new_step = self.time_step + step_offset;
-        if new_step > 0.0 {
+        let dt = self.time_step;
+        let new_step = dt + step_offset;
+        if new_step >= self.base_step {
             self.time_step = new_step;
         }
+    }
+
+    pub fn get_time_step(&self) -> Scalar {
+        self.time_step
     }
 
     /// Adds a particle to the simulation system and also checks for collision
