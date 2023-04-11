@@ -30,7 +30,7 @@ impl QuadBoundingBox {
     /// If the point does not lie in this bounding box, `contains` will return false
     pub fn contains(&self, p: cgmath::Vector2<Scalar>) -> bool {
         let (px, py) = (p.x, p.y);
-        return (px <= self.max_x && py <= self.max_y) && (px >= self.min_x && py >= self.min_y);
+        (px <= self.max_x && py <= self.max_y) && (px >= self.min_x && py >= self.min_y)
     }
 
     /// Given a point, determine which quadrant it lies in
@@ -42,7 +42,7 @@ impl QuadBoundingBox {
 
         // y_bit is shifted left (logical left shift). This will have an effect of "doubling"
         // the number (so 1 -> 2 if point p lies in the bottom half)
-        return x_bit + (y_bit << 1);
+        x_bit + (y_bit << 1)
     }
 
     /// Gets the child bounding box given a quadrant index

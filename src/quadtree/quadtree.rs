@@ -51,10 +51,10 @@ impl QuadTree {
     pub fn is_subdivided(&self) -> bool {
         for child in self.children.as_slice() {
             if child.is_some() {
-                return true;
+                return true
             }
         }
-        return false;
+        false
     }
 
     pub fn insert_particle(&mut self, particle: Particle) {

@@ -352,7 +352,7 @@ impl State {
     pub fn render(&mut self) -> Result<(), wgpu::SwapChainError> {
         let frame;
         match self.swap_chain.get_current_frame() {
-            Ok(sc_frame) => frame = sc_frame.output,
+            Ok(sc_frame) => { frame = sc_frame.output },
             Err(sc_err) => return Err(sc_err),
         }
 

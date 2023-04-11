@@ -50,8 +50,8 @@ pub fn create_unit_circle(
         ibuf.push(i + 1);
     }
 
-    return DrawBuffers {
+    DrawBuffers {
         vertices: vbuf,
         indices: Some(ibuf),
-    };
+    }
 }
